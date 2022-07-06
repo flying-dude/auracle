@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT
+#include <absl/container/flat_hash_map.h>
+#include <fmt/core.h>
 #include <getopt.h>
 
 #include <clocale>
 #include <iostream>
 
-#include "absl/container/flat_hash_map.h"
 #include "auracle/auracle.hh"
 #include "auracle/format.hh"
 #include "auracle/sort.hh"
@@ -12,14 +13,11 @@
 
 namespace {
 
-constexpr std::string_view kAurBaseurl = "https://aur.archlinux.org";
-constexpr std::string_view kPacmanConf = "/etc/pacman.conf";
-
 struct Flags {
-  bool ParseFromArgv(int* argc, char*** argv);
+  bool ParseFromArgv(int *argc, char ***argv);
 
-  std::string baseurl = std::string(kAurBaseurl);
-  std::string pacman_config = std::string(kPacmanConf);
+  std::string baseurl = std::string(auracle::kAurBaseurl);
+  std::string pacman_config = std::string(auracle::kPacmanConf);
   terminal::WantColor color = terminal::WantColor::AUTO;
 
   auracle::Auracle::CommandOptions command_options;
@@ -62,11 +60,11 @@ struct Flags {
 }
 
 [[noreturn]] void version() {
-  std::cout << "auracle " << PROJECT_VERSION << "\n";
+  std::cout << "auracle " << YMERGE_VERSION << "\n";
   exit(0);
 }
 
-bool Flags::ParseFromArgv(int* argc, char*** argv) {
+bool Flags::ParseFromArgv(int *argc, char ***argv) {
   enum {
     ARG_COLOR = 1000,
     ARG_LITERAL,
@@ -109,14 +107,9 @@ bool Flags::ParseFromArgv(int* argc, char*** argv) {
     std::string_view sv_optarg(optarg ? optarg : "");
 
     switch (opt) {
-      case 'h':
-        usage();
-      case 'q':
-        command_options.quiet = true;
-        break;
-      case 'r':
-        command_options.recurse = true;
-        break;
+      case 'h': usage();
+      case 'q': command_options.quiet = true; break;
+      case 'r': command_options.recurse = true; break;
       case 'C':
         if (sv_optarg.empty()) {
           std::cerr << "error: meaningless option: -C ''\n";
@@ -127,24 +120,19 @@ bool Flags::ParseFromArgv(int* argc, char*** argv) {
       case 'F': {
         auto status = format::Validate(sv_optarg);
         if (!status.ok()) {
-          std::cerr << "error: invalid arg to --format (" << status.message()
-                    << "): " << sv_optarg << "\n";
+          std::cerr << "error: invalid arg to --format (" << status.message() << "): " << sv_optarg << "\n";
           return false;
         }
         command_options.format = optarg;
         break;
       }
-      case ARG_LITERAL:
-        command_options.allow_regex = false;
-        break;
+      case ARG_LITERAL: command_options.allow_regex = false; break;
       case ARG_SEARCHBY:
         using SearchBy = aur::SearchRequest::SearchBy;
 
-        command_options.search_by =
-            aur::SearchRequest::ParseSearchBy(sv_optarg);
+        command_options.search_by = aur::SearchRequest::ParseSearchBy(sv_optarg);
         if (command_options.search_by == SearchBy::INVALID) {
-          std::cerr << "error: invalid arg to --searchby: " << sv_optarg
-                    << "\n";
+          std::cerr << "error: invalid arg to --searchby: " << sv_optarg << "\n";
           return false;
         }
         break;
@@ -161,43 +149,30 @@ bool Flags::ParseFromArgv(int* argc, char*** argv) {
         }
         break;
       case ARG_SORT:
-        command_options.sorter =
-            sort::MakePackageSorter(sv_optarg, sort::OrderBy::ORDER_ASC);
+        command_options.sorter = sort::MakePackageSorter(sv_optarg, sort::OrderBy::ORDER_ASC);
         if (command_options.sorter == nullptr) {
           std::cerr << "error: invalid arg to --sort: " << sv_optarg << "\n";
           return false;
         }
         break;
       case ARG_RSORT:
-        command_options.sorter =
-            sort::MakePackageSorter(sv_optarg, sort::OrderBy::ORDER_DESC);
+        command_options.sorter = sort::MakePackageSorter(sv_optarg, sort::OrderBy::ORDER_DESC);
         if (command_options.sorter == nullptr) {
           std::cerr << "error: invalid arg to --rsort: " << sv_optarg << "\n";
           return false;
         }
         break;
       case ARG_RESOLVE_DEPS:
-        if (!ParseDependencyKinds(sv_optarg,
-                                  &command_options.resolve_depends)) {
-          std::cerr << "error: invalid argument to --resolve-deps: "
-                    << sv_optarg << "\n";
+        if (!ParseDependencyKinds(sv_optarg, &command_options.resolve_depends)) {
+          std::cerr << "error: invalid argument to --resolve-deps: " << sv_optarg << "\n";
           return false;
         }
         break;
-      case ARG_BASEURL:
-        baseurl = optarg;
-        break;
-      case ARG_PACMAN_CONFIG:
-        pacman_config = optarg;
-        break;
-      case ARG_VERSION:
-        version();
-        break;
-      case ARG_SHOW_FILE:
-        command_options.show_file = optarg;
-        break;
-      default:
-        return false;
+      case ARG_BASEURL: baseurl = optarg; break;
+      case ARG_PACMAN_CONFIG: pacman_config = optarg; break;
+      case ARG_VERSION: version(); break;
+      case ARG_SHOW_FILE: command_options.show_file = optarg; break;
+      default: return false;
     }
   }
 
@@ -209,11 +184,20 @@ bool Flags::ParseFromArgv(int* argc, char*** argv) {
 
 }  // namespace
 
-int main(int argc, char** argv) {
-  Flags flags;
-  if (!flags.ParseFromArgv(&argc, &argv)) {
+int main_throws(int argc, char **argv);
+int main(int argc, char **argv) {
+  try {
+    return main_throws(argc, argv);
+  } catch (const std::exception &e) {
+    fmt::print(stderr, "error: {}\n", e.what());
     return 1;
   }
+}
+
+// this one might throw but does not catch exceptions
+int main_throws(int argc, char **argv) {
+  Flags flags;
+  if (!flags.ParseFromArgv(&argc, &argv)) { return 1; }
 
   if (argc < 2) {
     std::cerr << "error: no operation specified (use -h for help)\n";
@@ -223,28 +207,18 @@ int main(int argc, char** argv) {
   std::setlocale(LC_ALL, "");
   terminal::Init(flags.color);
 
-  const auto pacman = auracle::Pacman::NewFromConfig(flags.pacman_config);
-  if (pacman == nullptr) {
-    std::cerr << "error: failed to parse " << flags.pacman_config << "\n";
-    return 1;
-  }
-
-  auracle::Auracle auracle(auracle::Auracle::Options()
-                               .set_aur_baseurl(flags.baseurl)
-                               .set_pacman(pacman.get()));
+  const auto pacman = std::make_shared<auracle::Pacman>(flags.pacman_config.c_str());
+  auracle::Auracle auracle(auracle::Auracle::Options().set_aur_baseurl(flags.baseurl).set_pacman(pacman));
 
   const std::string_view action(argv[1]);
   const std::vector<std::string> args(argv + 2, argv + argc);
 
-  const absl::flat_hash_map<std::string_view,
-                            int (auracle::Auracle::*)(
-                                const std::vector<std::string>&,
-                                const auracle::Auracle::CommandOptions&)>
+  const absl::flat_hash_map<std::string_view, int (auracle::Auracle::*)(const std::vector<std::string> &,
+                                                                        const auracle::Auracle::CommandOptions &)>
       cmds{
           // clang-format off
           {"buildorder",  &auracle::Auracle::BuildOrder},
           {"clone",       &auracle::Auracle::Clone},
-          {"download",    &auracle::Auracle::Clone},
           {"info",        &auracle::Auracle::Info},
           {"rawinfo",     &auracle::Auracle::RawInfo},
           {"rawsearch",   &auracle::Auracle::RawSearch},
@@ -258,7 +232,7 @@ int main(int argc, char** argv) {
 
   const auto iter = cmds.find(action);
   if (iter == cmds.end()) {
-    std::cerr << "Unknown action " << action << "\n";
+    std::cerr << "Unknown action: " << action << "\n";
     return 1;
   }
 

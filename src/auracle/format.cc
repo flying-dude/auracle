@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #include "format.hh"
 
+#include <fmt/color.h>
 #include <fmt/printf.h>
 
 #include <iomanip>
@@ -58,7 +59,7 @@ struct formatter<absl::Time> {
   }
 
   auto format(const absl::Time t, fmt::format_context& ctx) {
-    return format_to(ctx.out(), "{}",
+    return fmt::format_to(ctx.out(), "{}",
                      absl::FormatTime(tm_format, t, absl::LocalTimeZone()));
   }
 
@@ -113,11 +114,11 @@ FMT_END_NAMESPACE
 namespace format {
 
 void NameOnly(const aur::Package& package) {
-  fmt::print(terminal::Bold("{}\n"), package.name);
+  fmt::print(fmt::emphasis::bold, "{}\n", package.name);
 }
 
 void Short(const aur::Package& package,
-           const std::optional<auracle::Pacman::Package>& local_package) {
+           const std::optional<alpm::pkg>& local_package) {
   namespace t = terminal;
 
   const auto& l = local_package;
@@ -128,10 +129,10 @@ void Short(const aur::Package& package,
   std::string installed_package;
   if (l) {
     const auto local_ver_color =
-        auracle::Pacman::Vercmp(l->pkgver, p.version) < 0 ? &t::BoldRed
+        auracle::Pacman::Vercmp(l->pkgver(), p.version) < 0 ? &t::BoldRed
                                                           : &t::BoldGreen;
     installed_package =
-        fmt::format("[installed: {}]", local_ver_color(l->pkgver));
+        fmt::format("[installed: {}]", local_ver_color(l->pkgver()));
   }
 
   fmt::print("{}{} {} ({}, {}) {}\n    {}\n", t::BoldMagenta("aur/"),
@@ -140,25 +141,25 @@ void Short(const aur::Package& package,
 }
 
 void Long(const aur::Package& package,
-          const std::optional<auracle::Pacman::Package>& local_package) {
+          const std::optional<alpm::pkg>& local_package) {
   namespace t = terminal;
 
   const auto& l = local_package;
   const auto& p = package;
 
-  const auto ood_color =
-      p.out_of_date > absl::UnixEpoch() ? &t::BoldRed : &t::BoldGreen;
+  //const auto ood_color = p.out_of_date > absl::UnixEpoch() ? &t::BoldRed : &t::BoldGreen;
 
   std::string installed_package;
   if (l) {
     const auto local_ver_color =
-        auracle::Pacman::Vercmp(l->pkgver, p.version) < 0 ? &t::BoldRed
+        auracle::Pacman::Vercmp(l->pkgver(), p.version) < 0 ? &t::BoldRed
                                                           : &t::BoldGreen;
     installed_package =
-        fmt::format(" [installed: {}]", local_ver_color(l->pkgver));
+        fmt::format(" [installed: {}]", local_ver_color(l->pkgver()));
   }
 
-  fmt::print("{}", Field("Repository", t::BoldMagenta("aur")));
+  // TODO fix broken code below
+  /*fmt::print("{}", Field("Repository", t::BoldMagenta("aur")));
   fmt::print("{}", Field("Name", p.name));
   fmt::print("{}", Field("Version", ood_color(p.version) + installed_package));
 
@@ -190,13 +191,13 @@ void Long(const aur::Package& package,
     fmt::print("{}", Field("Out of Date", p.out_of_date));
   }
   fmt::print("{}", Field("Description", p.description));
-  fmt::print("\n");
+  fmt::print("\n");*/
 }
 
-void Update(const auracle::Pacman::Package& from, const aur::Package& to) {
+void Update(const alpm::pkg& from, const aur::Package& to) {
   namespace t = terminal;
 
-  fmt::print("{} {} -> {}\n", t::Bold(from.pkgname), t::BoldRed(from.pkgver),
+  fmt::print("{} {} -> {}\n", t::Bold(from.pkgname()), t::BoldRed(from.pkgver()),
              t::BoldGreen(to.version));
 }
 
@@ -204,8 +205,13 @@ namespace {
 
 void FormatCustomTo(std::string& out, std::string_view format,
                     const aur::Package& package) {
+  throw std::runtime_error("function \"FormatCustomTo()\" turned off due to errors in migration from C++17 -> C++ 20");
+  /* possible solution:
+   * https://www.reddit.com/r/cpp/comments/vuhmsl/c_i_wrote_a_simple_and_fast_formatting_library/
+   * https://github.com/xeerx/fstring
+   */
   // clang-format off
-  fmt::format_to(
+  /* fmt::format_to(
       std::back_inserter(out), format,
       fmt::arg("name", package.name),
       fmt::arg("description", package.description),
@@ -231,7 +237,7 @@ void FormatCustomTo(std::string& out, std::string_view format,
       fmt::arg("licenses", package.licenses),
       fmt::arg("optdepends", package.optdepends),
       fmt::arg("provides", package.provides),
-      fmt::arg("replaces", package.replaces));
+      fmt::arg("replaces", package.replaces)); */
   // clang-format on
 }
 
@@ -239,9 +245,13 @@ void FormatCustomTo(std::string& out, std::string_view format,
 
 void Custom(const std::string_view format, const aur::Package& package) {
   std::string out;
-
-  FormatCustomTo(out, format, package);
-
+  try {
+    // this call will throw guaranteed. but we keep the call still here to preserve the intent of
+    // what should be done inside this function.
+    FormatCustomTo(out, format, package);
+  } catch (const std::runtime_error& e) {
+    out.assign(e.what());
+  }
   std::cout << out << "\n";
 }
 
@@ -249,7 +259,7 @@ bool FormatIsValid(const std::string& format, std::string* error) {
   try {
     std::string out;
     FormatCustomTo(out, format, aur::Package());
-  } catch (const fmt::format_error& e) {
+  } catch (const std::runtime_error& e) {
     error->assign(e.what());
     return false;
   }
@@ -261,7 +271,7 @@ absl::Status Validate(std::string_view format) {
   try {
     std::string out;
     FormatCustomTo(out, format, aur::Package());
-  } catch (const fmt::format_error& e) {
+  } catch (const std::runtime_error& e) {
     return absl::InvalidArgumentError(e.what());
   }
   return absl::OkStatus();

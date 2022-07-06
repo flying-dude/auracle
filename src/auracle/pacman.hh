@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
-#ifndef AURACLE_PACMAN_HH_
-#define AURACLE_PACMAN_HH_
+#pragma once
 
 #include <alpm.h>
 
@@ -9,50 +8,37 @@
 #include <string>
 #include <vector>
 
+#include "alpm/alpm.hpp"
+
 namespace auracle {
 
-class Pacman {
- public:
-  struct Package {
-    Package(std::string pkgname, std::string pkgver)
-        : pkgname(std::move(pkgname)), pkgver(std::move(pkgver)) {}
-    std::string pkgname;
-    std::string pkgver;
-  };
+struct Pacman {
+  alpm::handle alpm_;
+  alpm::db local_db_;
 
-  // Factory constructor.
-  static std::unique_ptr<Pacman> NewFromConfig(const std::string& config_file);
+  Pacman(const char *config_file = "/etc/pacman.conf") : alpm_(config_file), local_db_(alpm_.get_localdb()) {}
 
-  ~Pacman();
+  Pacman(const Pacman &) = delete;
+  Pacman &operator=(const Pacman &) = delete;
 
-  Pacman(const Pacman&) = delete;
-  Pacman& operator=(const Pacman&) = delete;
+  Pacman(Pacman &&) = default;
+  Pacman &operator=(Pacman &&) = default;
 
-  Pacman(Pacman&&) = default;
-  Pacman& operator=(Pacman&&) = default;
+  static int Vercmp(const std::string &a, const std::string &b);
 
-  static int Vercmp(const std::string& a, const std::string& b);
-
-  // Returns the name of the repo that the package belongs to, or empty string
+  // Returns the name of the repo that the package belongs to, or std::nullopt
   // if the package was not found in any repo.
-  std::string RepoForPackage(const std::string& package) const;
+  std::optional<alpm::db> RepoForPackage(const std::string &package) const;
 
-  bool HasPackage(const std::string& package) const {
-    return !RepoForPackage(package).empty();
-  }
+  bool HasPackage(const std::string &package) const { return RepoForPackage(package).has_value(); }
 
-  bool DependencyIsSatisfied(const std::string& package) const;
+  bool DependencyIsSatisfied(const std::string &package) const;
 
-  std::vector<Package> LocalPackages() const;
-  std::optional<Package> GetLocalPackage(const std::string& name) const;
-
- private:
-  Pacman(alpm_handle_t* alpm);
-
-  alpm_handle_t* alpm_;
-  alpm_db_t* local_db_;
+  // local packages. note that local packages do not necessarily belong to a repo.
+  // you can just create a simple PKGBUILD file and install a package from that.
+  // no repo at all in that case.
+  std::vector<alpm::pkg> LocalPackages() const;
+  std::optional<alpm::pkg> GetLocalPackage(const std::string &name) const;
 };
 
 }  // namespace auracle
-
-#endif  // AURACLE_PACMAN_HH_
